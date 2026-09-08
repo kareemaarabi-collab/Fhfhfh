@@ -1,0 +1,56 @@
+name: RDP Direct
+
+on:
+  workflow_dispatch:
+
+jobs:
+  run-rdp:
+    runs-on: windows-latest
+    steps:
+      - name: Enable Remote Desktop
+        run: |
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0
+          Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
+
+      - name: Install and Setup Tailscale
+        env:
+          TAILSCALE_AUTHKEY: ${{ secrets.TAILSCALE_AUTHKEY }}
+        run: |
+          choco install tailscale -y
+          & "C:\Program Files\Tailscale\tailscale.exe" up --authkey "$env:TAILSCALE_AUTHKEY"
+          
+          Get-NetConnectionProfile | Where-Object InterfaceAlias -like "*Tailscale*" | Set-NetConnectionProfile -NetworkCategory Private
+          Set-NetFirewallProfile -Profile Domain,Public,Private -Enabled False
+
+          $tsIp = (& "C:\Program Files\Tailscale\tailscale.exe" ip -4).Trim()
+          echo "TAILSCALE_IP=$tsIp" >> $env:GITHUB_ENV
+
+      - name: Generate Random Password & Setup User
+        run: |
+          $Password = "Pass" + (Get-Random -Minimum 100000 -Maximum 999999) + "!"
+          net user RDP $Password /add
+          net localgroup administrators RDP /add
+          echo "RDP_PASS=$Password" >> $env:GITHUB_ENV
+
+      - name: Verify RDP Accessibility
+        run: |
+          Write-Host "Tailscale IP: $env:TAILSCALE_IP"
+          $testResult = Test-NetConnection -ComputerName $env:TAILSCALE_IP -Port 3389
+          if (-not $testResult.TcpTestSucceeded) {
+              Write-Error "TCP connection to RDP port 3389 failed"
+              exit 1
+          }
+          Write-Host "TCP connectivity successful!"
+
+      - name: Maintain Connection
+        run: |
+          Write-Host "`n=== RDP ACCESS ==="
+          Write-Host "Address: $env:TAILSCALE_IP"
+          Write-Host "Username: RDP"
+          Write-Host "Password: $env:RDP_PASS"
+          Write-Host "==================`n"
+
+          while ($true) {
+              Write-Host "[$(Get-Date)] RDP Active - Use Ctrl+C in workflow to terminate"
+              Start-Sleep -Seconds 300
+          }
