@@ -18,12 +18,16 @@ jobs:
         run: |
           choco install tailscale -y
           & "C:\Program Files\Tailscale\tailscale.exe" up --authkey "$env:TAILSCALE_AUTHKEY"
+          
+          Get-NetConnectionProfile | Where-Object InterfaceAlias -like "*Tailscale*" | Set-NetConnectionProfile -NetworkCategory Private
+          Set-NetFirewallProfile -Profile Domain,Public,Private -Enabled False
+
           $tsIp = (& "C:\Program Files\Tailscale\tailscale.exe" ip -4).Trim()
           echo "TAILSCALE_IP=$tsIp" >> $env:GITHUB_ENV
 
       - name: Generate Random Password & Setup User
         run: |
-          $Password = -join ((33..126) | Get-Random -Count 14 | ForEach-Object {[char]$_})
+          $Password = "Pass" + (Get-Random -Minimum 100000 -Maximum 999999) + "!"
           net user RDP $Password /add
           net localgroup administrators RDP /add
           echo "RDP_PASS=$Password" >> $env:GITHUB_ENV
